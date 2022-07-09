@@ -7,9 +7,13 @@ const SPAWN_RADIUS: i32 = 10;
 const CHECK_RADIUS: i32 = 2;
 const TILE_Z: f32 = 100.0;
 
-const DIRT_MODIFIER: usize = 40;
-const GRASS_MODIFIER: usize = 10;
-const STONE_MODIFIER: usize = 40;
+const DIRT_MODIFIER_GLOBAL: usize = 1;
+const GRASS_MODIFIER_GLOBAL: usize = 1;
+const STONE_MODIFIER_GLOBAL: usize = 1;
+
+const DIRT_MODIFIER_LOCAL: usize = 4000;
+const GRASS_MODIFIER_LOCAL: usize = 1000;
+const STONE_MODIFIER_LOCAL: usize = 5000;
 
 #[derive(Component)]
 pub struct Map;
@@ -92,11 +96,17 @@ fn spawn_tile(
 
     // Find neighbours
     for (tile, tile_type) in tile_query.iter() {
+        match tile_type {
+            TileType::Dirt => { grasscount += GRASS_MODIFIER_GLOBAL; stonecount += STONE_MODIFIER_GLOBAL; },
+            TileType::Grass => { dirtcount += DIRT_MODIFIER_GLOBAL; stonecount += STONE_MODIFIER_GLOBAL; },
+            TileType::Stone => { dirtcount += DIRT_MODIFIER_GLOBAL; grasscount += GRASS_MODIFIER_GLOBAL; }
+        }
+
         if ((tile.0.x - new_tile.0.x) * (tile.0.x - new_tile.0.x)) + ((tile.0.y - new_tile.0.y) * (tile.0.y - new_tile.0.y)) < CHECK_RADIUS * CHECK_RADIUS {
             match tile_type {
-                TileType::Dirt => { dirtcount += DIRT_MODIFIER },
-                TileType::Grass => { grasscount += GRASS_MODIFIER },
-                TileType::Stone => { stonecount += STONE_MODIFIER }
+                TileType::Dirt => { dirtcount += DIRT_MODIFIER_LOCAL },
+                TileType::Grass => { grasscount += GRASS_MODIFIER_LOCAL },
+                TileType::Stone => { stonecount += STONE_MODIFIER_LOCAL }
             }
         }
     }
