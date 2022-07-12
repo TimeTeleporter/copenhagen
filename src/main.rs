@@ -1,9 +1,9 @@
 #![allow(clippy::redundant_field_names)]
+#![allow(dead_code)]
+#![feature(const_for)]
+#![feature(const_mut_refs)]
 
-use bevy::{
-    prelude::*, 
-    window::PresentMode,
-};
+use bevy::{prelude::*, window::PresentMode};
 
 pub const CLEAR: Color = Color::rgb(0.1, 0.1, 0.1);
 pub const RESOLUTION: f32 = 16.0 / 9.0;
@@ -12,17 +12,17 @@ pub const WINDOWHEIGHT: f32 = 1080.;
 pub const TILE_SIZE: f32 = 1.0;
 pub const PLAYERSPEED: f32 = 5.0 * TILE_SIZE;
 
+mod ascii;
+mod camera;
+mod debug;
 mod player;
 mod worldgen;
-mod ascii;
-mod debug;
-mod camera;
 
 use ascii::AsciiPlugin;
+use camera::CameraPlugin;
+use debug::DebugPlugin;
 use player::PlayerPlugin;
 use worldgen::WorldgenPlugin;
-use debug::DebugPlugin;
-use camera::CameraPlugin;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum GameState {
@@ -33,7 +33,6 @@ fn main() {
     let height: f32 = WINDOWHEIGHT;
 
     App::new()
-
         // Initialize the game and camera.
         .add_state(GameState::Overworld)
         .insert_resource(ClearColor(CLEAR))
@@ -47,13 +46,10 @@ fn main() {
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(DebugPlugin)
-
         // Add the different game systems and components via Plugins
         .add_plugin(AsciiPlugin)
         .add_plugin(PlayerPlugin)
         .add_plugin(WorldgenPlugin)
         .add_plugin(CameraPlugin)
-
         .run();
 }
-

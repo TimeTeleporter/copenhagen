@@ -8,11 +8,75 @@ use crate::{
     TILE_SIZE,
 };
 
-const SPAWN_RADIUS: i32 = 10;
-const CHECK_RADIUS: i32 = 2;
-const TILE_Z: f32 = 100.0;
+const SPAWN_RADIUS: i32 = 5;
+const POINT_IN_RADIUS: usize = {
+    let mut count: usize = 0;
+    let mut i: i32 = 0;
+    loop {
+        if i > SPAWN_RADIUS {
+            break;
+        }
+        let mut x: i32 = -i;
+        loop {
+            if x > i {
+                break;
+            }
+            let mut y: i32 = -i;
+            loop {
+                if y > i {
+                    break;
+                }
+                if x.abs() == i.abs() || y.abs() == i.abs() {
+                    if x * x + y * y < SPAWN_RADIUS * SPAWN_RADIUS {
+                        count += 1;
+                    }
+                }
+                y += 1;
+            }
+            x += 1;
+        }
+        i += 1;
+    }
+    count
+};
 
-const DIRT_POPULATION: f32 = 1.0;
+const SPAWN_LIST: [(i32, i32); POINT_IN_RADIUS] = {
+    let mut count: usize = 0;
+    let mut list: [(i32, i32); POINT_IN_RADIUS] = [(0, 0); POINT_IN_RADIUS];
+    let mut i: i32 = 0;
+    loop {
+        if i > SPAWN_RADIUS {
+            break;
+        }
+        let mut x: i32 = -i;
+        loop {
+            if x > i {
+                break;
+            }
+            let mut y: i32 = -i;
+            loop {
+                if y > i {
+                    break;
+                }
+                if x.abs() == i.abs() || y.abs() == i.abs() {
+                    if x * x + y * y < SPAWN_RADIUS * SPAWN_RADIUS {
+                        list[count] = (x, y);
+                        count += 1;
+                    }
+                }
+                y += 1;
+            }
+            x += 1;
+        }
+        i += 1;
+    }
+    list
+};
+
+const LOCAL_RADIUS: i32 = 8;
+const LOCAL_MODIFIER: usize = 2;
+
+const DIRT_POPULATION: f32 = 8.0;
 const GRASS_POPULATION: f32 = 1.0;
 const STONE_POPULATION: f32 = 1.0;
 
@@ -25,9 +89,10 @@ const IDEAL_TILE_DISTRIBUTION: (f32, f32, f32) = {
     )
 };
 
-const BARYCENTRIC_MAX_ABS_DIFF: f32 = 1.0; // The maximal distance with the "simply add/p=1" norm in a triangle built from the the unit vectors.
+// The maximal distance with the one-norm in a triangle built from the the unit vectors.
+const BARYCENTRIC_MAX_ABS_DIFF: f32 = 1.0;
 
-#[derive(Component, Inspectable)]
+#[derive(Component, Inspectable, Default)]
 pub struct Map {
     dirtcount: usize,
     grasscount: usize,
@@ -35,6 +100,29 @@ pub struct Map {
 }
 
 impl Map {
+    fn new(dirtcount: usize, grasscount: usize, stonecount: usize) -> Map {
+        Map {
+            dirtcount,
+            grasscount,
+            stonecount,
+        }
+    }
+
+    fn one_of_each(mut self) -> Map {
+        self.add_one(&TileType::Dirt)
+            .add_one(&TileType::Grass)
+            .add_one(&TileType::Stone)
+    }
+
+    fn add_one(&mut self, tile_type: &TileType) -> Map {
+        match tile_type {
+            TileType::Dirt => self.dirtcount += 1,
+            TileType::Grass => self.grasscount += 1,
+            TileType::Stone => self.stonecount += 1,
+        }
+        Map::new(self.dirtcount, self.grasscount, self.stonecount)
+    }
+
     fn get_normalized(&self) -> (f32, f32, f32) {
         renormalize_barycentric((
             self.dirtcount as f32,
@@ -49,16 +137,6 @@ fn renormalize_barycentric(xyz: (f32, f32, f32)) -> (f32, f32, f32) {
     let sum = x + y + z;
 
     (x / sum, y / sum, z / sum)
-}
-
-impl Default for Map {
-    fn default() -> Self {
-        Self {
-            dirtcount: 0,
-            grasscount: 0,
-            stonecount: 0,
-        }
-    }
 }
 
 #[derive(Component, Debug)]
@@ -136,19 +214,19 @@ fn spawn_tile(
     let tile_type: TileType = {
         // Get local barycentric coordinates
         let mut local_map = Map::default();
-        for (_tile, tile_type, _distance) in tile_query.iter().filter_map(|(tile, tile_type)| {
-            let distance = ((tile.0.x - new_tile.0.x) * (tile.0.x - new_tile.0.x))
+        for (_, tile_type, _distance) in tile_query.iter().filter_map(|(tile, tile_type)| {
+            let distance: i32 = ((tile.0.x - new_tile.0.x) * (tile.0.x - new_tile.0.x))
                 + ((tile.0.y - new_tile.0.y) * (tile.0.y - new_tile.0.y));
-            if distance > CHECK_RADIUS * CHECK_RADIUS {
+            if distance > LOCAL_RADIUS * LOCAL_RADIUS {
                 None
             } else {
                 Some((tile, tile_type, distance))
             }
         }) {
             match tile_type {
-                TileType::Dirt => local_map.dirtcount += 1,
-                TileType::Grass => local_map.grasscount += 1,
-                TileType::Stone => local_map.stonecount += 1,
+                TileType::Dirt => local_map.dirtcount += _distance as usize,
+                TileType::Grass => local_map.grasscount += _distance as usize,
+                TileType::Stone => local_map.stonecount += _distance as usize,
             }
         }
 
@@ -163,18 +241,15 @@ fn spawn_tile(
             (global.0 - ideal.0).abs() + (global.1 - ideal.1).abs() + (global.2 - ideal.2).abs();
         let weight = weight / BARYCENTRIC_MAX_ABS_DIFF;
 
-        println!("weight: {}", weight);
-
         // Should be equal to the local distribution if the weight is zero.
         // Should be equal to the ideal if the weight is one.
         let blend = renormalize_barycentric((
-            linear_blend(local.0, ideal.0, weight),
-            linear_blend(local.1, ideal.1, weight),
-            linear_blend(local.2, ideal.2, weight),
+            cubic_blend(local.0, ideal.0, weight),
+            cubic_blend(local.1, ideal.1, weight),
+            cubic_blend(local.2, ideal.2, weight),
         ));
 
         let draw: f32 = rand::thread_rng().gen_range(0.0..1.0);
-        println!("blend: {:?}, draw: {}", blend, draw);
         match draw {
             n if n < blend.0 => TileType::Dirt,
             n if n < blend.0 + blend.1 => TileType::Grass,
@@ -182,17 +257,17 @@ fn spawn_tile(
         }
     };
 
-    match tile_type {
-        TileType::Dirt => map.dirtcount += 1,
-        TileType::Grass => map.grasscount += 1,
-        TileType::Stone => map.stonecount += 1,
-    }
+    map.add_one(&tile_type);
 
     spawn_tile_type(commands, ascii, new_tile, tile_type)
 }
 
 fn linear_blend(local: f32, ideal: f32, weight: f32) -> f32 {
     local * (1.0 - weight) + ideal * weight
+}
+
+fn cubic_blend(local: f32, ideal: f32, weight: f32) -> f32 {
+    linear_blend(local, ideal, weight * weight * weight)
 }
 
 fn spawn_tile_type(
@@ -203,13 +278,13 @@ fn spawn_tile_type(
 ) -> Entity {
     let (index, color, name) = match tile_type {
         TileType::Dirt => (
-            '#' as usize,
+            0 as usize,
             Color::rgb(194.0 / 255.0, 126.0 / 255.0, 64.0 / 255.0),
             "Dirt".to_owned(),
         ),
-        TileType::Grass => ('~' as usize, Color::LIME_GREEN, "Grass".to_owned()),
+        TileType::Grass => (0 as usize, Color::LIME_GREEN, "Grass".to_owned()),
         TileType::Stone => (
-            176,
+            0,
             Color::rgb(192.0 / 255.0, 192.0 / 255.0, 192.0 / 255.0),
             "Stone".to_owned(),
         ),
@@ -220,7 +295,7 @@ fn spawn_tile_type(
         ascii,
         index,
         color,
-        new_tile.0.as_vec2().extend(TILE_Z) * TILE_SIZE,
+        new_tile.0.as_vec2().extend(100.0) * TILE_SIZE,
     );
     let tile = commands
         .entity(sprite)
@@ -262,18 +337,9 @@ fn get_lattice_points_in_radius(pos: Vec3) -> Vec<MapTile> {
 
     let pos: IVec2 = pos.round().as_ivec2();
 
-    let mut points: Vec<MapTile> = Vec::new();
-
-    for x in -SPAWN_RADIUS..SPAWN_RADIUS + 1 {
-        for y in -SPAWN_RADIUS..SPAWN_RADIUS + 1 {
-            points.push(MapTile(IVec2::new(x, y)));
-        }
-    }
-
-    let points = points
-        .iter()
-        .filter(|tile| tile.0.x * tile.0.x + tile.0.y * tile.0.y < SPAWN_RADIUS * SPAWN_RADIUS)
-        .map(|tile| MapTile(tile.0 + pos))
+    let points: Vec<MapTile> = SPAWN_LIST
+        .into_iter()
+        .map(|(x, y)| MapTile(IVec2::new(x, y) + pos))
         .collect();
 
     points
